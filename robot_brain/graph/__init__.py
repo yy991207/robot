@@ -13,6 +13,7 @@ from robot_brain.core.enums import Mode
 from robot_brain.persistence.checkpointer import MemoryCheckpointer, FileCheckpointer, Checkpoint
 from robot_brain.graph.kernel_graph import KernelGraph, create_kernel_nodes
 from robot_brain.graph.react_graph import ReActGraph, create_react_nodes
+from robot_brain.service.react.react_decide import ILLMClient
 
 
 class GraphPhase(Enum):
@@ -37,10 +38,11 @@ class BrainGraph:
     def __init__(
         self,
         checkpointer: Optional[MemoryCheckpointer | FileCheckpointer] = None,
-        on_state_change: Optional[Callable[[BrainState, str], None]] = None
+        on_state_change: Optional[Callable[[BrainState, str], None]] = None,
+        llm_client: ILLMClient = None
     ):
         self._kernel = KernelGraph()
-        self._react = ReActGraph()
+        self._react = ReActGraph(llm_client=llm_client)
         self._checkpointer = checkpointer or MemoryCheckpointer()
         self._on_state_change = on_state_change
         self._interrupted = False
@@ -185,10 +187,11 @@ class BrainGraph:
 
 def create_brain_graph(
     checkpointer: Optional[MemoryCheckpointer | FileCheckpointer] = None,
-    on_state_change: Optional[Callable[[BrainState, str], None]] = None
+    on_state_change: Optional[Callable[[BrainState, str], None]] = None,
+    llm_client: ILLMClient = None
 ) -> BrainGraph:
     """创建机器人大脑图实例"""
-    return BrainGraph(checkpointer, on_state_change)
+    return BrainGraph(checkpointer, on_state_change, llm_client)
 
 
 __all__ = [

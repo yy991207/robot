@@ -16,6 +16,7 @@ from robot_brain.core.enums import Mode
 from robot_brain.graph import BrainGraph, create_brain_graph
 from robot_brain.persistence.checkpointer import FileCheckpointer, MemoryCheckpointer
 from robot_brain.logging_config import setup_logging, get_logger
+from robot_brain.service.react.react_decide import ILLMClient
 
 
 class RobotBrain:
@@ -25,7 +26,8 @@ class RobotBrain:
         self,
         thread_id: str = "robot_brain_main",
         use_file_checkpointer: bool = True,
-        checkpoint_dir: str = ".checkpoints"
+        checkpoint_dir: str = ".checkpoints",
+        llm_client: ILLMClient = None
     ):
         self._thread_id = thread_id
         self._logger = get_logger("robot_brain")
@@ -39,7 +41,8 @@ class RobotBrain:
         # 创建主图
         self._graph = create_brain_graph(
             checkpointer=self._checkpointer,
-            on_state_change=self._on_state_change
+            on_state_change=self._on_state_change,
+            llm_client=llm_client
         )
         
         # 初始化状态
@@ -66,7 +69,7 @@ class RobotBrain:
         if initial_state:
             self._state = initial_state
         else:
-            self._state = BrainState.create_default()
+            self._state = BrainState()
         
         self._logger.info("Robot brain initialized")
         return self._state

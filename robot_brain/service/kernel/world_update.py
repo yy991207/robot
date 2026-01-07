@@ -122,12 +122,12 @@ class WorldUpdateNode(IKernelNode):
     
     def _get_current_zone(self, x: float, y: float, zones: List[str]) -> Optional[str]:
         """根据坐标判断当前区域（简化实现）"""
-        # 简化的区域映射，实际应该用更复杂的几何判断
+        # 区域边界定义（更精确）
         zone_bounds = {
-            "kitchen": {"x_min": 0, "x_max": 5, "y_min": 0, "y_max": 5},
-            "living_room": {"x_min": 5, "x_max": 15, "y_min": 0, "y_max": 10},
-            "bedroom": {"x_min": 0, "x_max": 5, "y_min": 5, "y_max": 10},
-            "bathroom": {"x_min": 5, "x_max": 10, "y_min": 10, "y_max": 15},
+            "kitchen": {"x_min": 1, "x_max": 4, "y_min": 1, "y_max": 4},
+            "living_room": {"x_min": 8, "x_max": 12, "y_min": 3, "y_max": 7},
+            "bedroom": {"x_min": 1, "x_max": 4, "y_min": 6, "y_max": 9},
+            "bathroom": {"x_min": 6, "x_max": 9, "y_min": 11, "y_max": 14},
             "charging_station": {"x_min": -2, "x_max": 0, "y_min": 0, "y_max": 2},
         }
         

@@ -19,14 +19,15 @@ from robot_brain.service.react import (
     StopOrLoopNode,
     LoopDecision
 )
+from robot_brain.service.react.react_decide import ILLMClient
 
 
 class ReActGraph:
     """ReAct 内环图"""
     
-    def __init__(self):
+    def __init__(self, llm_client: ILLMClient = None):
         self._build_observation = BuildObservationNode()
-        self._react_decide = ReActDecideNode()
+        self._react_decide = ReActDecideNode(llm_client=llm_client)
         self._compile_ops = CompileOpsNode()
         self._guardrails_check = GuardrailsCheckNode()
         self._human_approval = HumanApprovalNode()

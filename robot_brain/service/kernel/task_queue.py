@@ -35,8 +35,11 @@ class TaskQueueNode(IKernelNode):
         if state.hci.user_interrupt == UserInterruptType.NEW_GOAL:
             new_task = self._create_task_from_interrupt(state)
             if new_task:
+                # 清除旧的待处理任务，用户新指令优先
+                new_queue = [t for t in new_queue if t.status == TaskStatus.RUNNING]
                 new_queue.append(new_task)
-                new_inbox.clear()  # 清空 inbox
+                new_inbox.clear()
+                active_task_id = None  # 重新选择活动任务
         
         # 处理 inbox 中的待处理目标
         for goal_data in new_inbox:
