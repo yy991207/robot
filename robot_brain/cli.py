@@ -15,16 +15,20 @@ from robot_brain.logging_config import setup_logging, get_logger
 from robot_brain.llm import QwenLLMClient
 from robot_brain.service.skill.registry import SkillRegistry
 from robot_brain.simulation import RobotSimulator
+from robot_brain.service.chat import ChatService
+from robot_brain.persistence import SQLiteCheckpointer
 
 
 class RobotBrainCLI:
     """终端交互控制器"""
     
-    def __init__(self):
+    def __init__(self, use_sqlite: bool = True):
         self._brain: RobotBrain = None
         self._logger = get_logger("cli")
         self._running = False
         self._simulator = RobotSimulator()
+        self._chat_service: ChatService = None
+        self._use_sqlite = use_sqlite
     
     async def start(self):
         """启动交互模式"""
@@ -49,15 +53,25 @@ class RobotBrainCLI:
         
         # 初始化机器人大脑（使用真实 Qwen LLM）
         llm_client = QwenLLMClient()
+        thread_id = f"cli_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
         self._brain = RobotBrain(
-            thread_id=f"cli_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            thread_id=thread_id,
             use_file_checkpointer=False,
+            use_sqlite_checkpointer=self._use_sqlite,
             llm_client=llm_client
         )
         self._brain.initialize()
         
         # 注册默认技能到状态
         self._init_skills()
+        
+        # 初始化对话服务（带持久化）
+        self._chat_service = ChatService(
+            llm_client,
+            checkpointer=self._brain.sqlite_checkpointer,
+            thread_id=thread_id
+        )
         
         self._running = True
         await self._interaction_loop()
@@ -121,12 +135,22 @@ class RobotBrainCLI:
             print(f"[未知命令] /{cmd}，输入 /help 查看帮助")
             return
         
-        # 注入用户输入并执行
+        # 注入用户输入
         self._brain.inject_user_input(text)
-        print(f"[输入已接收] {text}")
         
-        # 执行一次循环处理输入
-        await self._run_once()
+        # 检查是否是指令类输入
+        from robot_brain.core.enums import UserInterruptType
+        from robot_brain.service.kernel.hci_ingress import HCIIngressNode
+        
+        interrupt_type, _ = HCIIngressNode.parse_intent(text)
+        
+        if interrupt_type == UserInterruptType.NONE:
+            # 普通对话
+            await self._chat(text)
+        else:
+            # 指令类输入，执行任务循环
+            print(f"[指令已接收] {text}")
+            await self._run_once()
     
     async def _run_once(self):
         """执行一次循环"""
@@ -140,6 +164,16 @@ class RobotBrainCLI:
             self._print_result(state)
         except Exception as e:
             print(f"[错误] {e}")
+    
+    async def _chat(self, text: str):
+        """流式闲聊对话"""
+        print("[机器人] ", end="", flush=True)
+        try:
+            async for chunk in self._chat_service.chat_stream(text):
+                print(chunk, end="", flush=True)
+            print()  # 换行
+        except Exception as e:
+            print(f"\n[对话错误] {e}")
     
     def _show_status(self):
         """显示当前状态"""

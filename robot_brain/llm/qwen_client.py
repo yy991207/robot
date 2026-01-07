@@ -3,7 +3,7 @@
 """
 
 import json
-from typing import Optional
+from typing import Optional, AsyncIterator
 
 import httpx
 
@@ -18,25 +18,26 @@ class QwenLLMClient:
     
     async def generate(self, messages: list, system_prompt: str) -> str:
         """
-        调用通义千问 API 生成响应
-        
-        Args:
-            messages: 对话消息列表
-            system_prompt: 系统提示词
-        
-        Returns:
-            LLM 生成的响应文本
+        调用通义千问 API 生成响应（非流式）
         """
-        # 构建请求消息
+        result = []
+        async for chunk in self.generate_stream(messages, system_prompt):
+            result.append(chunk)
+        return "".join(result)
+    
+    async def generate_stream(self, messages: list, system_prompt: str) -> AsyncIterator[str]:
+        """
+        流式调用通义千问 API
+        """
         request_messages = [{"role": "system", "content": system_prompt}]
         request_messages.extend(messages)
         
-        # 构建请求体
         payload = {
             "model": self._config.model,
             "messages": request_messages,
             "temperature": self._config.temperature,
-            "max_tokens": self._config.max_tokens
+            "max_tokens": self._config.max_tokens,
+            "stream": True
         }
         
         headers = {
@@ -45,12 +46,24 @@ class QwenLLMClient:
         }
         
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
+            async with client.stream(
+                "POST",
                 f"{self._config.base_url}/chat/completions",
                 json=payload,
                 headers=headers
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            return result["choices"][0]["message"]["content"]
+            ) as response:
+                response.raise_for_status()
+                
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except json.JSONDecodeError:
+                            continue

@@ -15,6 +15,7 @@ from robot_brain.core.state import BrainState
 from robot_brain.core.enums import Mode
 from robot_brain.graph import BrainGraph, create_brain_graph
 from robot_brain.persistence.checkpointer import FileCheckpointer, MemoryCheckpointer
+from robot_brain.persistence.sqlite_checkpointer import SQLiteCheckpointer
 from robot_brain.logging_config import setup_logging, get_logger
 from robot_brain.service.react.react_decide import ILLMClient
 
@@ -26,14 +27,20 @@ class RobotBrain:
         self,
         thread_id: str = "robot_brain_main",
         use_file_checkpointer: bool = True,
+        use_sqlite_checkpointer: bool = False,
         checkpoint_dir: str = ".checkpoints",
+        db_path: str = "data/robot_brain.db",
         llm_client: ILLMClient = None
     ):
         self._thread_id = thread_id
         self._logger = get_logger("robot_brain")
         
         # 初始化检查点存储
-        if use_file_checkpointer:
+        self._sqlite_checkpointer: Optional[SQLiteCheckpointer] = None
+        if use_sqlite_checkpointer:
+            self._sqlite_checkpointer = SQLiteCheckpointer(db_path)
+            self._checkpointer = MemoryCheckpointer()  # 图运行时用内存
+        elif use_file_checkpointer:
             self._checkpointer = FileCheckpointer(checkpoint_dir)
         else:
             self._checkpointer = MemoryCheckpointer()
@@ -155,6 +162,15 @@ class RobotBrain:
     @property
     def is_running(self) -> bool:
         return self._running
+    
+    @property
+    def sqlite_checkpointer(self) -> Optional[SQLiteCheckpointer]:
+        """获取SQLite checkpointer（用于对话持久化等）"""
+        return self._sqlite_checkpointer
+    
+    @property
+    def thread_id(self) -> str:
+        return self._thread_id
 
 
 async def main():
