@@ -48,6 +48,7 @@ class RobotBrain:
         # 创建主图
         self._graph = create_brain_graph(
             checkpointer=self._checkpointer,
+            sqlite_checkpointer=self._sqlite_checkpointer,
             on_state_change=self._on_state_change,
             llm_client=llm_client
         )

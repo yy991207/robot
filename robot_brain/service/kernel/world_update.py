@@ -65,7 +65,8 @@ class WorldUpdateNode(IKernelNode):
     def execute(self, state: BrainState) -> BrainState:
         """更新世界状态"""
         zones = self._source.get_zones()
-        obstacles = self._source.get_obstacles()
+        obstacles = self._source.get_obstacles() or list(state.world.obstacles)
+        obstacles = self._annotate_collision_risk(state, obstacles)
         summary = self._generate_summary(state, zones, obstacles)
         
         new_world = WorldState(
@@ -80,6 +81,91 @@ class WorldUpdateNode(IKernelNode):
         new_trace = replace(state.trace, log=new_log)
         
         return replace(state, world=new_world, trace=new_trace)
+
+    def _annotate_collision_risk(self, state: BrainState, obstacles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """为障碍物补充碰撞风险标记（简化实现）"""
+        if not obstacles:
+            return obstacles
+
+        # 尝试从当前任务元数据提取目标点
+        target_xy = None
+        if state.tasks.active_task_id:
+            for task in state.tasks.queue:
+                if task.task_id == state.tasks.active_task_id:
+                    goal = task.goal
+                    if goal.startswith("navigate_to:"):
+                        target = goal.split(":", 1)[1].strip()
+                        zone_centers = {
+                            "kitchen": (2.0, 2.0),
+                            "living_room": (10.0, 5.0),
+                            "bedroom": (2.0, 7.0),
+                            "bathroom": (7.0, 12.0),
+                            "charging_station": (-1.0, 1.0),
+                            "厨房": (2.0, 2.0),
+                            "客厅": (10.0, 5.0),
+                            "卧室": (2.0, 7.0),
+                            "浴室": (7.0, 12.0),
+                            "洗手间": (7.0, 12.0),
+                            "卫生间": (7.0, 12.0),
+                            "充电站": (-1.0, 1.0),
+                        }
+                        if target in zone_centers:
+                            target_xy = zone_centers[target]
+                    break
+
+        rx, ry = state.robot.pose.x, state.robot.pose.y
+
+        def clamp(v: float, lo: float, hi: float) -> float:
+            return max(lo, min(hi, v))
+
+        def point_to_aabb_dist(px: float, py: float, cx: float, cy: float, w: float, h: float) -> float:
+            # 以中心点(cx,cy)和宽高定义 AABB
+            hx, hy = w / 2.0, h / 2.0
+            nearest_x = clamp(px, cx - hx, cx + hx)
+            nearest_y = clamp(py, cy - hy, cy + hy)
+            dx = px - nearest_x
+            dy = py - nearest_y
+            return (dx * dx + dy * dy) ** 0.5
+
+        def segment_to_aabb_dist(x1: float, y1: float, x2: float, y2: float, cx: float, cy: float, w: float, h: float) -> float:
+            # 简化：取线段上最近点到 AABB 的距离（采样 + 端点兜底）
+            # 这不是严格几何最优，但足够用于“是否有风险”判定
+            best = min(
+                point_to_aabb_dist(x1, y1, cx, cy, w, h),
+                point_to_aabb_dist(x2, y2, cx, cy, w, h)
+            )
+            for t in [0.25, 0.5, 0.75]:
+                px = x1 + (x2 - x1) * t
+                py = y1 + (y2 - y1) * t
+                best = min(best, point_to_aabb_dist(px, py, cx, cy, w, h))
+            return best
+
+        annotated: List[Dict[str, Any]] = []
+        for obs in obstacles:
+            # 兼容两种格式：
+            # - web API 传入：x/y/width/height
+            # - 原 mock 结构：position={x,y}
+            cx = float(obs.get("x", obs.get("position", {}).get("x", 0.0)))
+            cy = float(obs.get("y", obs.get("position", {}).get("y", 0.0)))
+            w = float(obs.get("width", 1.0))
+            h = float(obs.get("height", 1.0))
+
+            # 风险判定：
+            # - 机器人当前位置离障碍物太近
+            # - 或者障碍物在“当前位置->目标点”的路径附近
+            dist_now = point_to_aabb_dist(rx, ry, cx, cy, w, h)
+            risk = dist_now < 0.6
+
+            if (not risk) and target_xy:
+                tx, ty = target_xy
+                dist_path = segment_to_aabb_dist(rx, ry, tx, ty, cx, cy, w, h)
+                risk = dist_path < 0.6
+
+            new_obs = dict(obs)
+            new_obs["collision_risk"] = bool(risk)
+            annotated.append(new_obs)
+
+        return annotated
     
     def _generate_summary(self, state: BrainState, zones: List[str], obstacles: List[Dict[str, Any]]) -> str:
         """生成世界摘要"""
@@ -107,9 +193,11 @@ class WorldUpdateNode(IKernelNode):
         if obstacles:
             obstacle_desc = []
             for obs in obstacles[:3]:  # 最多显示3个
-                obs_type = obs.get("type", "unknown")
-                obs_pos = obs.get("position", {})
-                obstacle_desc.append(f"{obs_type}@({obs_pos.get('x', 0):.1f},{obs_pos.get('y', 0):.1f})")
+                obs_type = obs.get("type", "obstacle")
+                x = obs.get("x", obs.get("position", {}).get("x", 0))
+                y = obs.get("y", obs.get("position", {}).get("y", 0))
+                risk = obs.get("collision_risk", False)
+                obstacle_desc.append(f"{obs_type}@({float(x):.1f},{float(y):.1f}) risk={risk}")
             parts.append(f"障碍物: {', '.join(obstacle_desc)}")
         
         # 任务相关

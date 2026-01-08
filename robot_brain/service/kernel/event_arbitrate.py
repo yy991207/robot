@@ -77,6 +77,11 @@ class EventArbitrateNode(IKernelNode):
                 # 新目标：进入执行模式，可能需要抢占
                 has_running = len(state.skills.running) > 0
                 return Mode.EXEC, has_running, "USER: new goal"
+
+        # 3.5. 未做外环意图识别时：只要有用户输入，就进入 EXEC 让内环 LLM 接管
+        if state.hci.user_utterance and state.hci.user_utterance.strip():
+            has_running = len(state.skills.running) > 0
+            return Mode.EXEC, has_running, "USER: utterance present (llm_handle)"
         
         # 4. 检查是否有活动任务
         if state.tasks.active_task_id or state.tasks.queue:

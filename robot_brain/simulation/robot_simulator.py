@@ -32,6 +32,18 @@ class RobotSimulator:
         "charging_station": ZoneInfo("charging_station", -1.0, 1.0),
     }
     
+    # 中文名称映射
+    ZONE_ALIASES = {
+        "厨房": "kitchen",
+        "客厅": "living_room",
+        "卧室": "bedroom",
+        "浴室": "bathroom",
+        "洗手间": "bathroom",
+        "卫生间": "bathroom",
+        "充电站": "charging_station",
+        "充电": "charging_station",
+    }
+    
     # 移动速度（单位/步）
     MOVE_SPEED = 1.0
     # 电量消耗（%/步）
@@ -45,13 +57,21 @@ class RobotSimulator:
     
     def set_target(self, target: str) -> bool:
         """设置目标位置"""
-        target_lower = target.lower()
+        target_lower = target.lower().strip()
         
-        # 查找匹配的区域
+        # 先检查中文别名
+        if target in self.ZONE_ALIASES:
+            zone_name = self.ZONE_ALIASES[target]
+            zone_info = self.ZONES[zone_name]
+            self._target_x = float(zone_info.x)
+            self._target_y = float(zone_info.y)
+            return True
+        
+        # 查找匹配的区域（英文）
         for zone_name, zone_info in self.ZONES.items():
             if zone_name.startswith(target_lower) or target_lower in zone_name:
-                self._target_x = zone_info.x
-                self._target_y = zone_info.y
+                self._target_x = float(zone_info.x)
+                self._target_y = float(zone_info.y)
                 return True
         
         return False

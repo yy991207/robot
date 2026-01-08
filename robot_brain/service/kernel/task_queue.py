@@ -31,14 +31,22 @@ class TaskQueueNode(IKernelNode):
         new_inbox = list(state.tasks.inbox)
         active_task_id = state.tasks.active_task_id
         
+        # 检测当前任务是否完成（到达目标）
+        if active_task_id and state.robot.distance_to_target < 0.5:
+            for task in new_queue:
+                if task.task_id == active_task_id and task.status == TaskStatus.RUNNING:
+                    task.status = TaskStatus.COMPLETED
+                    active_task_id = None  # 清空，准备选择下一个
+                    break
+        
         # 处理用户中断带来的新目标
         if state.hci.user_interrupt == UserInterruptType.NEW_GOAL:
-            new_task = self._create_task_from_interrupt(state)
-            if new_task:
-                # 清除旧的待处理任务，用户新指令优先
-                new_queue = [t for t in new_queue if t.status == TaskStatus.RUNNING]
-                new_queue.append(new_task)
+            new_tasks = self._create_task_from_interrupt(state)
+            if new_tasks:
+                # 用户新指令抢占所有旧任务
+                new_queue = []
                 new_inbox.clear()
+                new_queue.extend(new_tasks)
                 active_task_id = None  # 重新选择活动任务
         
         # 处理 inbox 中的待处理目标
@@ -78,28 +86,55 @@ class TaskQueueNode(IKernelNode):
         
         return replace(state, tasks=new_tasks, trace=new_trace)
     
-    def _create_task_from_interrupt(self, state: BrainState) -> Optional[Task]:
-        """从用户中断创建任务"""
+    def _create_task_from_interrupt(self, state: BrainState) -> Optional[List[Task]]:
+        """从用户中断创建任务（支持多任务）"""
         payload = state.hci.interrupt_payload
-        target = payload.get("target", "")
+        tasks_list = []
         
-        if not target:
-            return None
+        # 支持新格式（LLM 解析的多任务）
+        if payload.get("tasks"):
+            for i, task_data in enumerate(payload["tasks"]):
+                if task_data.get("type") == "navigate":
+                    target = task_data.get("target", "")
+                    if target:
+                        # 第一个任务优先级最高，后续递减
+                        priority = self.HIGH_PRIORITY - i * 5
+                        tasks_list.append(Task(
+                            task_id=f"task_{uuid.uuid4().hex[:8]}",
+                            goal=f"navigate_to:{target}",
+                            priority=priority,
+                            resources_required=["base"],
+                            preemptible=True,
+                            status=TaskStatus.PENDING,
+                            created_at=time.time(),
+                            metadata={
+                                "source": "user_interrupt",
+                                "original_utterance": payload.get("original", ""),
+                                "target": target,
+                                "sequence": i
+                            }
+                        ))
         
-        return Task(
-            task_id=f"task_{uuid.uuid4().hex[:8]}",
-            goal=f"navigate_to:{target}",
-            priority=self.HIGH_PRIORITY,  # 用户直接指令优先级高
-            resources_required=["base"],
-            preemptible=True,
-            status=TaskStatus.PENDING,
-            created_at=time.time(),
-            metadata={
-                "source": "user_interrupt",
-                "original_utterance": payload.get("original", ""),
-                "target": target
-            }
-        )
+        # 兼容旧格式（单个 target）
+        if not tasks_list:
+            target = payload.get("target", "")
+            if target:
+                tasks_list.append(Task(
+                    task_id=f"task_{uuid.uuid4().hex[:8]}",
+                    goal=f"navigate_to:{target}",
+                    priority=self.HIGH_PRIORITY,
+                    resources_required=["base"],
+                    preemptible=True,
+                    status=TaskStatus.PENDING,
+                    created_at=time.time(),
+                    metadata={
+                        "source": "user_interrupt",
+                        "original_utterance": payload.get("original", ""),
+                        "target": target
+                    }
+                ))
+        
+        return tasks_list if tasks_list else None
     
     def _create_task_from_goal(self, goal_data: Dict[str, Any]) -> Optional[Task]:
         """从目标数据创建任务"""

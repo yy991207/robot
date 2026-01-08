@@ -11,6 +11,7 @@ from enum import Enum
 from robot_brain.core.state import BrainState
 from robot_brain.core.enums import Mode
 from robot_brain.persistence.checkpointer import MemoryCheckpointer, FileCheckpointer, Checkpoint
+from robot_brain.persistence.sqlite_checkpointer import SQLiteCheckpointer
 from robot_brain.graph.kernel_graph import KernelGraph, create_kernel_nodes
 from robot_brain.graph.react_graph import ReActGraph, create_react_nodes
 from robot_brain.service.react.react_decide import ILLMClient
@@ -30,7 +31,7 @@ class BrainGraph:
     机器人大脑主图
     
     连接 Kernel 外环和 ReAct 内环，支持：
-    - 状态持久化
+    - 状态持久化（SQLite）
     - 中断处理
     - 流式输出
     """
@@ -38,12 +39,14 @@ class BrainGraph:
     def __init__(
         self,
         checkpointer: Optional[MemoryCheckpointer | FileCheckpointer] = None,
+        sqlite_checkpointer: Optional[SQLiteCheckpointer] = None,
         on_state_change: Optional[Callable[[BrainState, str], None]] = None,
         llm_client: ILLMClient = None
     ):
         self._kernel = KernelGraph()
         self._react = ReActGraph(llm_client=llm_client)
         self._checkpointer = checkpointer or MemoryCheckpointer()
+        self._sqlite_checkpointer = sqlite_checkpointer
         self._on_state_change = on_state_change
         self._interrupted = False
     
@@ -59,11 +62,39 @@ class BrainGraph:
         node_name: str
     ) -> str:
         """保存检查点"""
-        return self._checkpointer.save(
+        # 内存/文件检查点
+        cp_id = self._checkpointer.save(
             thread_id=thread_id,
             state=state,
             node_name=node_name
         )
+        
+        # SQLite 检查点（异步，但这里同步调用）
+        if self._sqlite_checkpointer:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(
+                        self._sqlite_checkpointer.save_checkpoint(
+                            thread_id, state, node_name
+                        )
+                    )
+                else:
+                    loop.run_until_complete(
+                        self._sqlite_checkpointer.save_checkpoint(
+                            thread_id, state, node_name
+                        )
+                    )
+            except RuntimeError:
+                # 没有事件循环，创建新的
+                asyncio.run(
+                    self._sqlite_checkpointer.save_checkpoint(
+                        thread_id, state, node_name
+                    )
+                )
+        
+        return cp_id
     
     def _load_checkpoint(
         self,
@@ -187,11 +218,12 @@ class BrainGraph:
 
 def create_brain_graph(
     checkpointer: Optional[MemoryCheckpointer | FileCheckpointer] = None,
+    sqlite_checkpointer: Optional[SQLiteCheckpointer] = None,
     on_state_change: Optional[Callable[[BrainState, str], None]] = None,
     llm_client: ILLMClient = None
 ) -> BrainGraph:
     """创建机器人大脑图实例"""
-    return BrainGraph(checkpointer, on_state_change, llm_client)
+    return BrainGraph(checkpointer, sqlite_checkpointer, on_state_change, llm_client)
 
 
 __all__ = [

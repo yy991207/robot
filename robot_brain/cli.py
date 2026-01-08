@@ -137,20 +137,9 @@ class RobotBrainCLI:
         
         # 注入用户输入
         self._brain.inject_user_input(text)
-        
-        # 检查是否是指令类输入
-        from robot_brain.core.enums import UserInterruptType
-        from robot_brain.service.kernel.hci_ingress import HCIIngressNode
-        
-        interrupt_type, _ = HCIIngressNode.parse_intent(text)
-        
-        if interrupt_type == UserInterruptType.NONE:
-            # 普通对话
-            await self._chat(text)
-        else:
-            # 指令类输入，执行任务循环
-            print(f"[指令已接收] {text}")
-            await self._run_once()
+
+        # 统一交由内环 LLM 判断/拆解并驱动技能
+        await self._run_once()
     
     async def _run_once(self):
         """执行一次循环"""

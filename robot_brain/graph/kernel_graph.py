@@ -10,7 +10,6 @@ from dataclasses import asdict
 from robot_brain.core.state import BrainState
 from robot_brain.core.enums import Mode
 from robot_brain.service.kernel import (
-    HCIIngressNode,
     TelemetrySyncNode,
     WorldUpdateNode,
     EventArbitrateNode,
@@ -24,7 +23,6 @@ class KernelGraph:
     """Kernel 外环图"""
     
     def __init__(self):
-        self._hci_ingress = HCIIngressNode()
         self._telemetry_sync = TelemetrySyncNode()
         self._world_update = WorldUpdateNode()
         self._event_arbitrate = EventArbitrateNode()
@@ -33,9 +31,6 @@ class KernelGraph:
     
     def run(self, state: BrainState) -> BrainState:
         """执行 Kernel 外环"""
-        # K1: HCI 输入处理
-        state = self._hci_ingress.execute(state)
-        
         # K2: 遥测数据同步
         state = self._telemetry_sync.execute(state)
         
@@ -64,18 +59,12 @@ class KernelGraph:
 
 def create_kernel_nodes() -> Dict[str, Any]:
     """创建 Kernel 节点（用于 LangGraph StateGraph）"""
-    
-    hci_ingress = HCIIngressNode()
+
     telemetry_sync = TelemetrySyncNode()
     world_update = WorldUpdateNode()
     event_arbitrate = EventArbitrateNode()
     task_queue = TaskQueueNode()
     kernel_route = KernelRouteNode()
-    
-    def hci_ingress_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        brain_state = BrainState._from_dict(state)
-        result = hci_ingress.execute(brain_state)
-        return result._to_dict()
     
     def telemetry_sync_node(state: Dict[str, Any]) -> Dict[str, Any]:
         brain_state = BrainState._from_dict(state)
@@ -115,7 +104,6 @@ def create_kernel_nodes() -> Dict[str, Any]:
             return "idle"
     
     return {
-        "hci_ingress": hci_ingress_node,
         "telemetry_sync": telemetry_sync_node,
         "world_update": world_update_node,
         "event_arbitrate": event_arbitrate_node,

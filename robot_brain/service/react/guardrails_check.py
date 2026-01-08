@@ -80,6 +80,7 @@ class GuardrailsCheckNode(IReActNode):
         """验证操作"""
         errors = []
         valid_dispatches = []
+        cancel_goal_ids = set(ops.to_cancel or [])
         
         for dispatch in ops.to_dispatch:
             skill_name = dispatch.get("skill_name", "")
@@ -102,7 +103,8 @@ class GuardrailsCheckNode(IReActNode):
             conflict = self._check_resource_conflict(
                 skill_def.resources_required,
                 state.robot.resources,
-                state.skills.running
+                state.skills.running,
+                cancel_goal_ids
             )
             if conflict:
                 errors.append(f"Resource conflict for {skill_name}: {conflict}")
@@ -137,23 +139,29 @@ class GuardrailsCheckNode(IReActNode):
         self,
         required: List[str],
         current_resources: Dict[str, bool],
-        running_skills: List
+        running_skills: List,
+        cancel_goal_ids: Optional[set] = None
     ) -> Optional[str]:
         """检查资源冲突"""
-        # 检查当前资源状态
+        cancel_goal_ids = cancel_goal_ids or set()
+
+        # 计算“取消后”的资源占用（同一轮 to_cancel 会在 Dispatch_Skills 中先执行）
+        occupied_after_cancel = set()
+        for skill in running_skills:
+            if getattr(skill, "goal_id", None) in cancel_goal_ids:
+                continue
+            occupied_after_cancel.update(skill.resources_occupied)
+
+        # 若资源在取消后仍被占用，则判定冲突
+        for resource in required:
+            if resource in occupied_after_cancel:
+                return f"Resource {resource} is occupied by running skill"
+
+        # 兼容资源 busy flag（可能存在外部系统写入）。如果 busy 但取消后不再占用，则不视为冲突。
         for resource in required:
             resource_key = f"{resource}_busy"
-            if current_resources.get(resource_key, False):
+            if current_resources.get(resource_key, False) and resource in occupied_after_cancel:
                 return f"Resource {resource} is busy"
-        
-        # 检查运行中技能占用的资源
-        occupied = set()
-        for skill in running_skills:
-            occupied.update(skill.resources_occupied)
-        
-        for resource in required:
-            if resource in occupied:
-                return f"Resource {resource} is occupied by running skill"
         
         return None
     

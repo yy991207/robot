@@ -21,6 +21,23 @@ class CompileOpsNode(IReActNode):
     # 需要审批的技能列表
     APPROVAL_REQUIRED_SKILLS = ["navigate_to_unknown", "manipulate", "dock"]
     
+    # 区域坐标映射
+    ZONE_COORDINATES = {
+        "kitchen": (2.0, 2.0),
+        "living_room": (10.0, 5.0),
+        "bedroom": (2.0, 7.0),
+        "bathroom": (7.0, 12.0),
+        "charging_station": (-1.0, 1.0),
+        # 中文别名
+        "厨房": (2.0, 2.0),
+        "客厅": (10.0, 5.0),
+        "卧室": (2.0, 7.0),
+        "浴室": (7.0, 12.0),
+        "洗手间": (7.0, 12.0),
+        "卫生间": (7.0, 12.0),
+        "充电站": (-1.0, 1.0),
+    }
+    
     async def execute(self, state: BrainState) -> BrainState:
         """编译决策为可执行操作"""
         proposed_ops = self._compile(state)
@@ -58,17 +75,14 @@ class CompileOpsNode(IReActNode):
         
         # 根据决策类型处理
         if decision.type == DecisionType.ABORT:
-            # 中止：取消所有运行中的技能
             to_cancel = [s.goal_id for s in state.skills.running]
             to_speak = ["任务已中止"]
         
         elif decision.type == DecisionType.FINISH:
-            # 完成：取消所有运行中的技能，通知用户
             to_cancel = [s.goal_id for s in state.skills.running]
             to_speak = ["任务已完成"]
         
         elif decision.type == DecisionType.ASK_HUMAN:
-            # 求助：暂停并请求人工干预
             to_speak = [f"需要人工干预: {decision.reason}"]
             need_approval = True
             approval_payload = {
@@ -77,34 +91,31 @@ class CompileOpsNode(IReActNode):
             }
         
         elif decision.type in [DecisionType.CONTINUE, DecisionType.REPLAN, DecisionType.RETRY]:
-            # 继续/重规划/重试：处理操作列表
             if state.tasks.preempt_flag:
-                # 需要抢占：先取消当前运行的技能
                 to_cancel = [s.goal_id for s in state.skills.running]
             
-            # 编译操作
             for op in decision.ops:
                 skill_name = op.get("skill", "")
                 params = op.get("params", {})
                 
                 if skill_name:
+                    # 转换参数
+                    converted_params = self._convert_params(skill_name, params)
                     dispatch_item = {
                         "skill_name": skill_name,
-                        "params": params
+                        "params": converted_params
                     }
                     to_dispatch.append(dispatch_item)
                     
-                    # 检查是否需要审批
                     if self._requires_approval(skill_name, params):
                         need_approval = True
                         approval_payload = {
                             "skill": skill_name,
-                            "params": params,
+                            "params": converted_params,
                             "reason": "High-risk operation requires approval"
                         }
         
         elif decision.type == DecisionType.SWITCH_TASK:
-            # 切换任务：取消当前技能
             to_cancel = [s.goal_id for s in state.skills.running]
             to_speak = ["正在切换任务"]
         
@@ -116,14 +127,27 @@ class CompileOpsNode(IReActNode):
             approval_payload=approval_payload
         )
     
+    def _convert_params(self, skill_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """转换参数 - 区域名转坐标"""
+        if skill_name == "NavigateToPose":
+            target = params.get("target", "")
+            if target and target in self.ZONE_COORDINATES:
+                x, y = self.ZONE_COORDINATES[target]
+                return {
+                    "target_x": x,
+                    "target_y": y,
+                    "target_theta": params.get("target_theta", 0.0),
+                    "behavior_tree": params.get("behavior_tree", "")
+                }
+            # 如果已经有坐标，直接返回
+            if "target_x" in params:
+                return params
+        return params
+    
     def _requires_approval(self, skill_name: str, params: Dict[str, Any]) -> bool:
         """判断技能是否需要审批"""
-        # 检查技能名称
         if skill_name in self.APPROVAL_REQUIRED_SKILLS:
             return True
-        
-        # 检查参数中的高风险标记
         if params.get("high_risk", False):
             return True
-        
         return False

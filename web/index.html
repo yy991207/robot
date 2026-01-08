@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Brain</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/map.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部状态栏 -->
+        <header class="status-bar">
+            <div class="status-item">
+                <span class="label">电量</span>
+                <span id="battery" class="value">100%</span>
+            </div>
+            <div class="status-item">
+                <span class="label">模式</span>
+                <span id="mode" class="value">IDLE</span>
+            </div>
+            <div class="status-item">
+                <span class="label">任务</span>
+                <span id="task" class="value">无</span>
+            </div>
+            <div class="status-item">
+                <span class="label">位置</span>
+                <span id="position" class="value">(0, 0)</span>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 地图区域 -->
+            <section class="map-section">
+                <div class="map-header">
+                    <h2>地图</h2>
+                    <div class="map-controls">
+                        <button id="btn-add-obstacle" class="btn btn-secondary">添加障碍物</button>
+                        <button id="btn-clear-obstacles" class="btn btn-secondary">清除障碍物</button>
+                    </div>
+                </div>
+                <div class="map-container">
+                    <canvas id="map-canvas" width="640" height="640"></canvas>
+                </div>
+                <div class="map-legend">
+                    <span class="legend-item"><span class="dot robot"></span>机器人</span>
+                    <span class="legend-item"><span class="dot kitchen"></span>厨房</span>
+                    <span class="legend-item"><span class="dot living"></span>客厅</span>
+                    <span class="legend-item"><span class="dot bedroom"></span>卧室</span>
+                    <span class="legend-item"><span class="dot bathroom"></span>浴室</span>
+                    <span class="legend-item"><span class="dot charging"></span>充电站</span>
+                </div>
+            </section>
+
+            <!-- 对话区域 -->
+            <section class="chat-section">
+                <div class="chat-header">
+                    <h2>对话</h2>
+                </div>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div class="chat-input-container">
+                    <input type="text" id="chat-input" placeholder="输入消息或命令..." />
+                    <button id="btn-send" class="btn btn-primary">发送</button>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部控制栏 -->
+        <footer class="control-bar">
+            <div class="control-group">
+                <button id="btn-stop" class="btn btn-danger">停止</button>
+                <button id="btn-pause" class="btn btn-warning">暂停</button>
+                <button id="btn-resume" class="btn btn-success">继续</button>
+            </div>
+            <div class="control-group">
+                <span class="hint">提示: 点击地图添加障碍物，拖拽移动</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/map.js"></script>
+    <script src="/static/js/robot.js"></script>
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
