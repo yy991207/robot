@@ -129,7 +129,36 @@ class BrainGraph:
             state = await self._react.run(state)
             self._save_checkpoint(thread_id, state, "react")
             self._notify_state_change(state, "react")
+
+            # ReAct 可能写入 tasks.inbox（plan），这里再跑一次 Kernel 以落地任务队列与路由状态
+            state = self._kernel.run(state)
+            self._save_checkpoint(thread_id, state, "kernel_post_react")
+            self._notify_state_change(state, "kernel_post_react")
         
+        return state
+
+    async def run_react_once(
+        self,
+        state: BrainState,
+        thread_id: str = "default",
+        node_name: str = "react"
+    ) -> BrainState:
+        """执行一次 ReAct 内环，用于任务切换后的复盘/必要时重规划"""
+        # 记录 ReAct 前的 inbox，用于判断本轮是否产生了新的 plan
+        prev_inbox = list(state.tasks.inbox)
+
+        state = await self._react.run(state)
+        self._save_checkpoint(thread_id, state, node_name)
+        self._notify_state_change(state, node_name)
+
+        # 仅当 ReAct 写入了新的 plan（tasks.inbox 发生变化）时，才补跑一次 Kernel
+        # 普通复盘场景不再重复执行 TaskQueue，避免在 distance_to_target 仍为 0 时
+        # 把刚切换的 active_task 误判为已完成。
+        if state.tasks.inbox != prev_inbox:
+            state = self._kernel.run(state)
+            self._save_checkpoint(thread_id, state, f"kernel_post_{node_name}")
+            self._notify_state_change(state, f"kernel_post_{node_name}")
+
         return state
     
     async def run_loop(

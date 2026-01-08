@@ -52,18 +52,40 @@ class BuildObservationNode(IReActNode):
             if task.task_id == state.tasks.active_task_id:
                 active_task = task
                 break
+
+        obstacles_risk_count = 0
+        for obs in state.world.obstacles:
+            if obs.get("collision_risk") is True:
+                obstacles_risk_count += 1
+
+        queue_preview = []
+        for t in state.tasks.queue:
+            queue_preview.append({
+                "task_id": t.task_id,
+                "goal": t.goal,
+                "status": t.status.value,
+                "metadata": {
+                    "source": t.metadata.get("source"),
+                    "sequence": t.metadata.get("sequence")
+                }
+            })
         
         observation = {
             "iteration": state.react.iter + 1,
             "world": {
                 "summary": state.world.summary,
                 "zones": state.world.zones,
-                "obstacle_count": len(state.world.obstacles)
+                "obstacle_count": len(state.world.obstacles),
+                "obstacles_risk_count": obstacles_risk_count
             },
             "robot": {
                 "position": {
                     "x": round(state.robot.pose.x, 2),
                     "y": round(state.robot.pose.y, 2)
+                },
+                "home_pose": {
+                    "x": round(state.robot.home_pose.x, 2),
+                    "y": round(state.robot.home_pose.y, 2)
                 },
                 "battery_pct": round(state.robot.battery_pct, 1),
                 "battery_state": state.robot.battery_state,
@@ -74,6 +96,7 @@ class BuildObservationNode(IReActNode):
                 "active_task_id": state.tasks.active_task_id,
                 "goal": active_task.goal if active_task else None,
                 "queue_length": len(state.tasks.queue),
+                "queue_preview": queue_preview,
                 "mode": state.tasks.mode.value
             },
             "skills": {

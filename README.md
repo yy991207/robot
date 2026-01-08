@@ -44,6 +44,11 @@ pip install -e .
 ```bash
 pytest tests/ -v
 ```
+## 运行项目
+
+```bash
+uvicorn robot_brain.api.server:app --host 0.0.0.0 --port 8000 --reload
+```
 
 ## 项目结构
 

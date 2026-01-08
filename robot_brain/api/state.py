@@ -64,6 +64,9 @@ class AppState:
         )
         self._brain.initialize()
         self._logger.info("机器人大脑已初始化")
+
+        # 记录会话起点（驻地）
+        self._brain.state.robot.home_pose = self._brain.state.robot.pose
         
         # 初始化技能
         registry = SkillRegistry()
@@ -92,6 +95,8 @@ class AppState:
         while self._running:
             try:
                 if self._brain and self._brain.state:
+                    prev_active_task_id = self._brain.state.tasks.active_task_id
+
                     # 注入障碍物
                     self._brain.state.world.obstacles = self._obstacles
                     
@@ -107,6 +112,11 @@ class AppState:
                             # 到达目标，运行Kernel处理任务切换
                             self._brain._state = self._brain._graph._kernel.run(self._brain.state)
                             self._logger.info(f"任务切换: active_task={self._brain.state.tasks.active_task_id}")
+
+                    # 仅在任务切换点触发一次 ReAct（二次决策/必要时 REPLAN）
+                    if prev_active_task_id != self._brain.state.tasks.active_task_id:
+                        if self._brain.state.tasks.mode == Mode.EXEC:
+                            self._brain._state = await self._brain.run_react_once(node_name="react_task_transition")
                     
                     # 广播位置更新
                     await self._broadcast_position()
@@ -143,11 +153,22 @@ class AppState:
                         # 清空旧目标
                         self._simulator._target_x = None
                         self._simulator._target_y = None
-                        
-                        if self._simulator.set_target(target):
-                            self._logger.info(f"导航目标: {target} -> ({self._simulator._target_x}, {self._simulator._target_y})")
+
+                        if target == "home":
+                            self._simulator.set_target_pose(
+                                x=state.robot.home_pose.x,
+                                y=state.robot.home_pose.y,
+                                theta=0.0,
+                                behavior_tree=""
+                            )
+                            self._logger.info(
+                                f"导航目标: home -> ({self._simulator._target_x}, {self._simulator._target_y})"
+                            )
                         else:
-                            self._logger.warning(f"未知目标: {target}")
+                            if self._simulator.set_target(target):
+                                self._logger.info(f"导航目标: {target} -> ({self._simulator._target_x}, {self._simulator._target_y})")
+                            else:
+                                self._logger.warning(f"未知目标: {target}")
                         self._last_nav_target = target
                     break
     

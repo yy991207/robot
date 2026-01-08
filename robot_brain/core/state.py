@@ -29,6 +29,7 @@ class WorldState:
 class RobotState:
     """机器人状态"""
     pose: Pose = field(default_factory=Pose)
+    home_pose: Pose = field(default_factory=Pose)
     twist: Twist = field(default_factory=Twist)
     battery_pct: float = 100.0
     battery_state: str = "FULL"
@@ -131,9 +132,11 @@ class BrainState:
         
         robot_d = d.get("robot", {})
         pose_d = robot_d.get("pose", {})
+        home_pose_d = robot_d.get("home_pose", {})
         twist_d = robot_d.get("twist", {})
         robot = RobotState(
             pose=Pose(**pose_d) if pose_d else Pose(),
+            home_pose=Pose(**home_pose_d) if home_pose_d else Pose(),
             twist=Twist(**twist_d) if twist_d else Twist(),
             battery_pct=robot_d.get("battery_pct", 100.0),
             battery_state=robot_d.get("battery_state", "FULL"),

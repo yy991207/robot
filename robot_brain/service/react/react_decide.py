@@ -12,7 +12,7 @@ import json
 from dataclasses import replace
 from typing import Dict, Any, Optional, Protocol, List
 
-from robot_brain.core.enums import DecisionType, UserInterruptType, TaskStatus
+from robot_brain.core.enums import DecisionType, UserInterruptType, TaskStatus, Mode
 from robot_brain.core.models import Decision
 from robot_brain.core.state import BrainState, ReactState
 from .base import IReActNode
@@ -111,6 +111,25 @@ class ReActDecideNode(IReActNode):
         messages = self._prepare_messages(state)
         response = await self._llm.generate(messages, self.SYSTEM_PROMPT)
         decision, new_tasks = self._parse_decision(response)
+
+        # 是否允许本轮进行结构性 REPLAN（接受 new_tasks 并改写任务队列）
+        allow_replan = self._should_allow_replan(state)
+
+        if not allow_replan:
+            # 在普通步骤复盘场景：默认只继续当前计划，不接受结构性重规划
+            if decision and decision.type in {
+                DecisionType.REPLAN,
+                DecisionType.RETRY,
+                DecisionType.SWITCH_TASK,
+            }:
+                decision = Decision(
+                    type=DecisionType.CONTINUE,
+                    reason=decision.reason,
+                    plan_patch=decision.plan_patch,
+                    ops=decision.ops,
+                )
+            # 丢弃本轮 new_tasks，沿用既有队列
+            new_tasks = []
         
         # 更新 ReactState
         new_react = ReactState(
@@ -129,41 +148,32 @@ class ReActDecideNode(IReActNode):
             "type": "decision"
         })
         
-        # 如果有新任务，直接添加到queue并设置active_task
+        # 如果有新任务：写入 inbox 作为 plan（不直接覆盖 queue），交由 TaskQueueNode 按优先级/状态推进
         new_tasks_state = state.tasks
         if new_tasks:
-            import time
-            import uuid
-            from robot_brain.core.models import Task
-            from robot_brain.core.enums import TaskStatus
-            
-            new_queue = []
+            new_inbox = list(state.tasks.inbox)
             for i, task_data in enumerate(new_tasks):
-                target = task_data.get("target", "")
-                if target:
-                    task = Task(
-                        task_id=f"task_{uuid.uuid4().hex[:8]}",
-                        goal=f"navigate_to:{target}",
-                        priority=80 - i * 5,
-                        resources_required=["base"],
-                        preemptible=True,
-                        status=TaskStatus.PENDING if i > 0 else TaskStatus.RUNNING,
-                        created_at=time.time(),
-                        metadata={
-                            "source": "llm_decompose",
-                            "target": target,
-                            "sequence": i
-                        }
-                    )
-                    new_queue.append(task)
-            
-            if new_queue:
-                new_tasks_state = replace(
-                    state.tasks,
-                    queue=new_queue,
-                    active_task_id=new_queue[0].task_id,
-                    inbox=[]
-                )
+                target = (task_data.get("target") or "").strip()
+                if not target:
+                    continue
+
+                # 语义：home/驻地/回去 -> 会话起点
+                if target.lower() in ["home", "base", "驻地", "回驻地", "返回驻地"]:
+                    target = "home"
+
+                new_inbox.append({
+                    "goal": f"navigate_to:{target}",
+                    "priority": 80 - i * 5,
+                    "resources_required": ["base"],
+                    "preemptible": True,
+                    "metadata": {
+                        "source": "llm_plan",
+                        "target": target,
+                        "sequence": i
+                    }
+                })
+
+            new_tasks_state = replace(state.tasks, inbox=new_inbox)
         
         # 记录日志
         new_log = state.trace.log.copy()
@@ -183,6 +193,28 @@ class ReActDecideNode(IReActNode):
             trace=new_trace,
             hci=new_hci
         )
+
+    def _should_allow_replan(self, state: BrainState) -> bool:
+        """根据当前状态判断本轮是否允许结构性 REPLAN（接受 new_tasks）"""
+        # 1. 有用户输入：说明是用户主动发起的新指令/打断，允许规划或重规划
+        if state.hci.user_utterance and state.hci.user_utterance.strip():
+            return True
+
+        # 2. 有显式用户中断（STOP/PAUSE/NEW_GOAL）
+        if state.hci.user_interrupt != UserInterruptType.NONE:
+            return True
+
+        # 3. 模式已被 Kernel 判为安全/充电，通常需要重新规划
+        if state.tasks.mode in (Mode.SAFE, Mode.CHARGE):
+            return True
+
+        # 4. 世界状态异常：存在碰撞风险障碍物
+        for obs in state.world.obstacles:
+            if obs.get("collision_risk") is True:
+                return True
+
+        # 其他情况：普通步骤完成后的复盘，默认不允许结构性 REPLAN
+        return False
     
     def _prepare_messages(self, state: BrainState) -> list:
         """准备 LLM 消息"""

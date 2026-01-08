@@ -129,6 +129,13 @@ class CompileOpsNode(IReActNode):
     
     def _convert_params(self, skill_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """转换参数 - 区域名转坐标"""
+        if skill_name == "Speak":
+            # 兼容旧字段：部分 prompt/LLM 可能输出 content
+            if "message" not in params and "content" in params:
+                new_params = dict(params)
+                new_params["message"] = new_params.pop("content")
+                return new_params
+
         if skill_name == "NavigateToPose":
             target = params.get("target", "")
             if target and target in self.ZONE_COORDINATES:

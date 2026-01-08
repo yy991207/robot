@@ -118,6 +118,18 @@ class RobotBrain:
             thread_id=self._thread_id
         )
         return self._state
+
+    async def run_react_once(self, node_name: str = "react") -> BrainState:
+        """仅执行一次 ReAct 内环（不运行 Kernel）"""
+        if not self._state:
+            self._state = self.initialize()
+
+        self._state = await self._graph.run_react_once(
+            state=self._state,
+            thread_id=self._thread_id,
+            node_name=node_name
+        )
+        return self._state
     
     def stop(self):
         """停止运行"""

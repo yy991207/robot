@@ -11,7 +11,7 @@ import uuid
 from dataclasses import replace
 from typing import List, Dict, Any, Optional
 
-from robot_brain.core.enums import UserInterruptType, TaskStatus
+from robot_brain.core.enums import UserInterruptType, TaskStatus, Mode
 from robot_brain.core.models import Task
 from robot_brain.core.state import BrainState, TasksState
 from .base import IKernelNode
@@ -67,12 +67,18 @@ class TaskQueueNode(IKernelNode):
                     active_task_id = task.task_id
                     task.status = TaskStatus.RUNNING
                     break
+
+        # EventArbitrateNode 在 TaskQueueNode 之前执行，可能把 mode 判成 IDLE。
+        # 这里若已存在活动任务，则强制进入 EXEC，确保后续路由与前端响应一致。
+        new_mode = state.tasks.mode
+        if active_task_id:
+            new_mode = Mode.EXEC
         
         new_tasks = TasksState(
             inbox=new_inbox,
             queue=new_queue,
             active_task_id=active_task_id,
-            mode=state.tasks.mode,
+            mode=new_mode,
             preempt_flag=state.tasks.preempt_flag,
             preempt_reason=state.tasks.preempt_reason
         )

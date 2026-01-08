@@ -42,7 +42,9 @@ async def chat(req: ChatRequest, request: Request):
     # 根据执行结果判断类型
     is_command = (
         state.tasks.mode != Mode.IDLE or
-        state.hci.user_interrupt != UserInterruptType.NONE
+        state.hci.user_interrupt != UserInterruptType.NONE or
+        bool(state.tasks.active_task_id) or
+        bool(state.tasks.queue)
     )
     
     # 获取回复
